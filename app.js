@@ -27,7 +27,16 @@ const THEME = {
   font: '"Pretendard Variable", Pretendard, system-ui, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif',
 
   // 리캡 영상
-  video: { width: 1280, height: 720, fps: 30, coverSec: 3, perActivitySec: 4, outroSec: 3 },
+  video: {
+    width: 1280,
+    height: 720,
+    fps: 30,
+    coverSec: 3,
+    perActivitySec: 4,
+    outroSec: 3,
+    imageTintAlpha: 0.24,
+    textShadeAlpha: 0.72
+  },
 
   // 기억의 산책길
   // 길 = 시간, 나무 = 한 주, 연 = 그 주의 활동 한 건
@@ -55,6 +64,103 @@ const THEME = {
 };
 
 /* ============================================================
+   활동 이미지 제공자
+   활동 하나를 받아 data: URL 또는 null 을 돌려준다.
+   일반 https:// 이미지는 canvas 를 오염시켜 captureStream() 을 막을 수 있으므로
+   외부 이미지는 제공자 안에서 반드시 data: URL 로 바꾼 뒤 반환한다.
+   여기 한 줄만 바꾸면 로컬 모델이나 외부 API 로 갈아끼울 수 있다.
+   ============================================================ */
+const imageProviders = {
+  // 기본값. 지금까지 하던 대로 canvas 가 하늘을 그린다
+  canvas: {
+    async imageFor() {
+      // 반환 규약: 이미지를 쓰지 않을 때는 null, 쓸 때는 반드시 data: URL 이어야 한다.
+      return null;
+    }
+  },
+
+  // 로컬 Stable Diffusion WebUI(A1111)의 txt2img API 참고 구현
+  local: {
+    async imageFor(activity) {
+      // POST http://127.0.0.1:7860/sdapi/v1/txt2img 에 활동 내용과 출력 크기를 보낸다.
+      const response = await fetch('http://127.0.0.1:7860/sdapi/v1/txt2img', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: `warm documentary illustration of ${activity.title}, ${activity.place}, ${activity.memo}`,
+          width: THEME.video.width,
+          height: THEME.video.height,
+          steps: 20
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`로컬 이미지 생성 실패: ${response.status}`);
+      }
+
+      const result = await response.json();
+      const base64 = result.images && result.images[0];
+
+      // A1111의 base64 응답도 반드시 data: URL 형태로 감싸서 반환한다.
+      return base64 ? `data:image/png;base64,${base64}` : null;
+    }
+  },
+
+  // 외부 이미지 생성 API 참고 구현
+  api: {
+    async imageFor(activity) {
+      // POST https://api.example.com/v1/activity-images 에 활동 객체와 출력 크기를 보낸다.
+      // 응답 규약: { imageDataUrl } 또는 { imageUrl }. 실제 주소와 인증 방식은 서비스에 맞게 바꾼다.
+      const response = await fetch('https://api.example.com/v1/activity-images', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          activity,
+          width: THEME.video.width,
+          height: THEME.video.height
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`외부 이미지 생성 실패: ${response.status}`);
+      }
+
+      const result = await response.json();
+      const source = result.imageDataUrl || result.imageUrl;
+      if (!source) {
+        return null;
+      }
+
+      if (source.startsWith('data:')) {
+        // 제공자가 직접 준 이미지도 반드시 data: URL 인 경우에만 그대로 반환한다.
+        return source;
+      }
+
+      // https:// URL만 받았다면 CORS가 허용된 서버에서 blob으로 받은 뒤 data: URL로 바꾼다.
+      const imageResponse = await fetch(source);
+      if (!imageResponse.ok) {
+        throw new Error(`외부 이미지 다운로드 실패: ${imageResponse.status}`);
+      }
+
+      // 반환값은 canvas를 오염시키지 않는 data: URL 이어야 한다.
+      return blobToDataUrl(await imageResponse.blob());
+    }
+  }
+};
+
+const imageProvider = imageProviders.canvas; // 이미지 제공자 교체 지점
+
+// Blob을 canvas에서 안전하게 쓸 수 있는 data: URL로 바꾼다
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener('load', () => resolve(reader.result), { once: true });
+    reader.addEventListener('error', () => reject(reader.error), { once: true });
+    reader.readAsDataURL(blob);
+  });
+}
+
+/* ============================================================
    상태
    localStorage 가 유일한 진실 소스다. 화면은 항상 여기서 다시 그린다.
    ============================================================ */
@@ -63,6 +169,7 @@ const STORAGE_KEY = 'activities';
 let activities = [];
 let searchKeyword = '';
 let isRecording = false;
+const imageCache = new Map(); // activity.id -> HTMLImageElement
 
 /* ============================================================
    화면 요소
@@ -506,9 +613,79 @@ function drawCoverFrame(ctx, week, progress) {
   applyFade(ctx, progress);
 }
 
-// 활동 1건의 하늘 프레임
+// data: URL을 모두 읽은 HTMLImageElement로 바꾼다
+function loadDataImage(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.addEventListener('load', () => resolve(image), { once: true });
+    image.addEventListener('error', () => reject(new Error('활동 이미지를 읽지 못했습니다.')), { once: true });
+    image.src = dataUrl;
+  });
+}
+
+// 녹화 전에 그 주의 활동 이미지를 받아 캐시에 넣는다. 실패한 이미지는 canvas 하늘로 대체한다
+async function preloadImages(week) {
+  imageCache.clear();
+
+  await Promise.all(week.items.map(async (activity) => {
+    try {
+      const dataUrl = await imageProvider.imageFor(activity);
+      if (!dataUrl) {
+        return;
+      }
+
+      // data: URL만 허용해야 canvas가 오염되지 않고 captureStream()을 계속 쓸 수 있다.
+      if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) {
+        return;
+      }
+
+      imageCache.set(activity.id, await loadDataImage(dataUrl));
+    } catch (error) {
+      // 이미지 제공자가 실패해도 영상은 기존 canvas 하늘로 계속 만든다.
+      imageCache.delete(activity.id);
+    }
+  }));
+}
+
+// 이미지를 프레임에 빈틈 없이 cover 방식으로 그린다
+function drawImageCover(ctx, image) {
+  const { width, height } = ctx.canvas;
+  const scale = Math.max(width / image.naturalWidth, height / image.naturalHeight);
+  const drawWidth = image.naturalWidth * scale;
+  const drawHeight = image.naturalHeight * scale;
+  const x = (width - drawWidth) / 2;
+  const y = (height - drawHeight) / 2;
+
+  ctx.drawImage(image, x, y, drawWidth, drawHeight);
+}
+
+// 활동 이미지를 하늘색으로 통일하고 아래쪽 글자 영역을 어둡게 만든다
+function drawActivityImage(ctx, image, hue) {
+  const { width, height } = ctx.canvas;
+  ctx.save();
+  drawImageCover(ctx, image);
+
+  ctx.fillStyle = `hsla(${hue}, ${THEME.sky.sat}%, ${THEME.sky.topLight}%, ${THEME.video.imageTintAlpha})`;
+  ctx.fillRect(0, 0, width, height);
+
+  const shade = ctx.createLinearGradient(0, height * 0.2, 0, height);
+  shade.addColorStop(0, 'rgba(0, 0, 0, 0)');
+  shade.addColorStop(1, `rgba(0, 0, 0, ${THEME.video.textShadeAlpha})`);
+  ctx.fillStyle = shade;
+  ctx.fillRect(0, 0, width, height);
+  ctx.restore();
+}
+
+// 활동 1건의 이미지 또는 하늘 프레임
 function drawActivityFrame(ctx, activity, progress) {
-  drawScene(ctx, hueOf(activity.title), hashCode(activity.title));
+  const hue = hueOf(activity.title);
+  const image = imageCache.get(activity.id);
+
+  if (image) {
+    drawActivityImage(ctx, image, hue);
+  } else {
+    drawScene(ctx, hue, hashCode(activity.title));
+  }
 
   const meta = [activity.place, `${activity.memberCount}명이 함께함`].filter(Boolean).join('  ·  ');
 
@@ -589,10 +766,12 @@ function downloadRecap(blob, week) {
 }
 
 // 주간 리캡 영상을 만든다. canvas를 실시간으로 그리면서 그 화면을 그대로 녹화한다
-function createWeeklyRecap(week) {
+async function createWeeklyRecap(week) {
   if (isRecording) {
     return;
   }
+
+  await preloadImages(week);
 
   const ctx = recapCanvas.getContext('2d');
   const scenes = buildScenes(week);
