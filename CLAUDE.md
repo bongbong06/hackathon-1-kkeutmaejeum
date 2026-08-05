@@ -11,6 +11,7 @@
 - HTML / CSS / JavaScript (프레임워크 없음)
 - 데이터 저장: 브라우저 localStorage
 - 외부 라이브러리: 없음 (canvas, MediaRecorder 등 브라우저 내장 API만 사용)
+- 웹폰트: Pretendard (CDN. 받지 못하면 system-ui 로 자연스럽게 폴백된다)
 
 # 파일 구조
 

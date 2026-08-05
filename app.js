@@ -24,7 +24,7 @@ const THEME = {
   hill: { hue: 95, backLight: 62, frontLight: 45, sat: 38 },
 
   text: { color: '#ffffff', shadow: 'rgba(0, 0, 0, 0.25)' },
-  font: 'system-ui, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif',
+  font: '"Pretendard Variable", Pretendard, system-ui, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif',
 
   // 리캡 영상
   video: { width: 1280, height: 720, fps: 30, coverSec: 3, perActivitySec: 4, outroSec: 3 },
@@ -1266,6 +1266,12 @@ function init() {
 
   walkStart = performance.now();
   requestAnimationFrame(walkLoop);
+
+  // 웹폰트가 늦게 도착하면 canvas 글자가 폴백 글꼴로 그려진 채 남는다.
+  // 다 받은 뒤 한 번 더 그려 준다. 폰트를 못 받아도 그냥 넘어간다
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(() => drawWalkScene(0));
+  }
 }
 
 init();

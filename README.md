@@ -140,7 +140,8 @@ python -m http.server 8000
 | 프론트엔드    | HTML / CSS / JavaScript (프레임워크 없음)                     |
 | 데이터 저장   | 브라우저 localStorage                                      |
 | 영상 생성    | canvas 2D · `canvas.captureStream()` · `MediaRecorder` |
-| 외부 라이브러리 | **없음**                                                 |
+| 외부 라이브러리 | **없음** (JS 라이브러리 0개)                              |
+| 웹폰트 | Pretendard (CDN). 받지 못하면 `system-ui` 로 폴백되며 레이아웃은 그대로 유지됩니다 |
 
 ## 파일 구조
 

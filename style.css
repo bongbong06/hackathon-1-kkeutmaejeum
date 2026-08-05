@@ -23,13 +23,14 @@
   --card-bg: rgba(255, 255, 255, 0.94);
   --card-radius: 24px;
   --card-pad: 24px;
-  --card-shadow: 0 10px 30px rgba(23, 63, 95, 0.16);
+  /* 그림자는 가까운 것과 먼 것 두 겹으로 줘야 부드럽다 */
+  --card-shadow: 0 1px 2px rgba(23, 63, 95, 0.08), 0 12px 32px rgba(23, 63, 95, 0.14);
 
   /* 글자 */
   --text: #23303d;
   --text-soft: #55636f;
   --text-muted: #7d8b99;
-  --font: system-ui, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
+  --font: "Pretendard Variable", Pretendard, system-ui, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
 
   /* 강조 */
   --accent: hsl(var(--sky-hue), 72%, 52%);
@@ -65,6 +66,9 @@ body {
   min-height: 100vh;
   padding-bottom: calc(var(--hill-height) + 20px);
   font-family: var(--font);
+  /* 숫자 폭을 고정해 인원·날짜가 줄마다 흔들리지 않게 한다 */
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
   color: var(--text);
   background: linear-gradient(180deg,
       var(--sky-top) 0%,
@@ -123,16 +127,18 @@ body {
 
 .header__title {
   margin: 0;
-  font-size: 2.4rem;
+  font-size: 2.6rem;
   font-weight: 800;
-  letter-spacing: -0.02em;
-  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.18);
+  letter-spacing: -0.035em;
+  text-shadow: 0 2px 16px rgba(12, 48, 78, 0.22);
 }
 
 .header__subtitle {
-  margin: 8px 0 0;
-  font-size: 0.95rem;
-  color: rgba(255, 255, 255, 0.88);
+  margin: 10px 0 0;
+  font-size: 0.9rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: rgba(255, 255, 255, 0.82);
 }
 
 /* ============================================================
@@ -167,9 +173,11 @@ body {
   bottom: 76px;
   max-width: 60%;
   padding: 14px 18px;
-  background: rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
   border-radius: 16px;
-  box-shadow: 0 6px 20px rgba(23, 63, 95, 0.18);
+  box-shadow: 0 6px 20px rgba(23, 63, 95, 0.14);
   pointer-events: none;
   opacity: 0;
   transform: translateY(6px);
@@ -325,9 +333,9 @@ body {
   font-size: 0.92rem;
   color: inherit;
   background: var(--input-bg);
-  border: 1.5px solid var(--input-border);
+  border: 1px solid var(--input-border);
   border-radius: var(--input-radius);
-  transition: border-color 0.15s, background 0.15s;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
 }
 
 .field input:focus,
@@ -335,6 +343,12 @@ body {
   outline: none;
   background: #fff;
   border-color: var(--accent-soft);
+  box-shadow: 0 0 0 3px hsla(var(--sky-hue), 78%, 62%, 0.18);
+}
+
+.field input::placeholder,
+.field textarea::placeholder {
+  color: #a9b6c2;
 }
 
 .field textarea {
