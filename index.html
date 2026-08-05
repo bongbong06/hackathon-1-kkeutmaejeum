@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>우리가 함께한 날들</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- 배경에 떠 있는 구름 -->
+  <div class="sky-clouds" aria-hidden="true">
+    <span class="cloud cloud--1"></span>
+    <span class="cloud cloud--2"></span>
+    <span class="cloud cloud--3"></span>
+    <span class="cloud cloud--4"></span>
+  </div>
+
+  <header class="header">
+    <h1 class="header__title">우리가 함께한 날들</h1>
+    <p class="header__subtitle">1팀 끝맺음 · 동아리 활동 기록 관리</p>
+  </header>
+
+  <main class="layout">
+    <!-- 왼쪽: 활동 등록 -->
+    <section class="panel panel--form">
+      <h2 class="panel__title">이 날을 기록하기</h2>
+      <form id="activityForm" class="form" novalidate>
+        <label class="field">
+          <span class="field__label">활동명 <em>*</em></span>
+          <input type="text" id="titleInput" name="title" placeholder="신입생 환영회" autocomplete="off">
+        </label>
+
+        <label class="field">
+          <span class="field__label">날짜 <em>*</em></span>
+          <input type="date" id="dateInput" name="date">
+        </label>
+
+        <label class="field">
+          <span class="field__label">장소</span>
+          <input type="text" id="placeInput" name="place" placeholder="학생회관 대강당" autocomplete="off">
+        </label>
+
+        <label class="field">
+          <span class="field__label">함께한 사람 <em>*</em></span>
+          <input type="number" id="memberCountInput" name="memberCount" min="1" step="1" placeholder="24">
+        </label>
+
+        <label class="field">
+          <span class="field__label">메모</span>
+          <textarea id="memoInput" name="memo" rows="3" placeholder="그날 기억에 남은 것"></textarea>
+        </label>
+
+        <p id="formError" class="form__error" role="alert"></p>
+
+        <button type="submit" class="button button--primary">이 날 기록하기</button>
+      </form>
+    </section>
+
+    <!-- 오른쪽 -->
+    <div class="column">
+      <!-- 주간 리캡 영상 -->
+      <section class="panel panel--recap">
+        <h2 class="panel__title">주간 리캡 영상</h2>
+        <p class="panel__desc">한 주의 기록을 모아 짧은 영상으로 만들어 드려요.</p>
+        <div id="weekSelector" class="week-list"></div>
+        <p id="recapStatus" class="recap__status" role="status"></p>
+        <canvas id="recapCanvas" class="recap__canvas" width="1280" height="720"></canvas>
+      </section>
+
+      <!-- 검색 -->
+      <section class="panel panel--search">
+        <label class="search">
+          <span class="search__icon" aria-hidden="true">⌕</span>
+          <input type="search" id="searchInput" placeholder="활동명이나 장소로 찾아보기" autocomplete="off">
+        </label>
+      </section>
+
+      <!-- 타임라인 -->
+      <section class="panel panel--timeline">
+        <h2 class="panel__title">
+          함께한 날들
+          <span id="countLabel" class="panel__count"></span>
+        </h2>
+        <div id="timeline" class="timeline"></div>
+      </section>
+    </div>
+  </main>
+
+  <!-- 평원 -->
+  <svg class="hills" viewBox="0 0 1440 220" preserveAspectRatio="none" aria-hidden="true">
+    <path class="hills__back" d="M0,150 Q240,80 480,130 T960,120 T1440,140 L1440,220 L0,220 Z"></path>
+    <path class="hills__front" d="M0,185 Q300,130 600,175 T1200,170 T1440,185 L1440,220 L0,220 Z"></path>
+  </svg>
+
+  <script src="app.js"></script>
+</body>
+</html>

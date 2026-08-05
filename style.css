@@ -1,0 +1,347 @@
+/* ============================================================
+   디자인 토큰
+   색·모양·간격을 바꾸려면 여기 값만 고치면 된다.
+   아래 규칙들은 전부 이 변수를 참조한다.
+   ============================================================ */
+:root {
+  /* 하늘 (페이지 배경) */
+  --sky-hue: 203;
+  --sky-top: hsl(var(--sky-hue), 72%, 56%);
+  --sky-mid: hsl(var(--sky-hue), 74%, 70%);
+  --sky-bottom: hsl(var(--sky-hue), 78%, 87%);
+
+  /* 구름 */
+  --cloud-color: rgba(255, 255, 255, 0.55);
+  --cloud-blur: 18px;
+
+  /* 평원 */
+  --hill-back: hsl(96, 34%, 62%);
+  --hill-front: hsl(96, 40%, 45%);
+  --hill-height: 180px;
+
+  /* 카드 */
+  --card-bg: rgba(255, 255, 255, 0.94);
+  --card-radius: 24px;
+  --card-pad: 24px;
+  --card-shadow: 0 10px 30px rgba(23, 63, 95, 0.16);
+
+  /* 글자 */
+  --text: #23303d;
+  --text-soft: #55636f;
+  --text-muted: #7d8b99;
+  --font: system-ui, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
+
+  /* 강조 */
+  --accent: hsl(var(--sky-hue), 72%, 52%);
+  --accent-soft: hsl(var(--sky-hue), 78%, 62%);
+  --required: #e8845a;
+  --danger: #d64f45;
+
+  /* 입력 */
+  --input-bg: #f6f9fb;
+  --input-border: #dde6ee;
+  --input-radius: 12px;
+
+  /* 레이아웃 */
+  --page-max: 1080px;
+  --page-pad: 24px;
+  --sidebar-width: 340px;
+  --gap: 20px;
+}
+
+/* ============================================================
+   기본
+   ============================================================ */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  padding-bottom: calc(var(--hill-height) + 20px);
+  font-family: var(--font);
+  color: var(--text);
+  background: linear-gradient(180deg,
+      var(--sky-top) 0%,
+      var(--sky-mid) 40%,
+      var(--sky-bottom) 100%);
+  background-attachment: fixed;
+}
+
+/* ============================================================
+   배경 — 구름과 평원
+   ============================================================ */
+.sky-clouds {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.cloud {
+  position: absolute;
+  display: block;
+  background: var(--cloud-color);
+  border-radius: 999px;
+  filter: blur(var(--cloud-blur));
+}
+
+.cloud--1 { width: 320px; height:  90px; top:  8%; left: -8%; }
+.cloud--2 { width: 240px; height:  70px; top: 26%; left: 62%; }
+.cloud--3 { width: 400px; height: 110px; top: 52%; left: 12%; }
+.cloud--4 { width: 200px; height:  60px; top: 72%; left: 74%; }
+
+.hills {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: var(--hill-height);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.hills__back  { fill: var(--hill-back); }
+.hills__front { fill: var(--hill-front); }
+
+/* ============================================================
+   헤더
+   ============================================================ */
+.header {
+  position: relative;
+  z-index: 1;
+  padding: 48px var(--page-pad) 28px;
+  text-align: center;
+  color: #fff;
+}
+
+.header__title {
+  margin: 0;
+  font-size: 2.4rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.18);
+}
+
+.header__subtitle {
+  margin: 8px 0 0;
+  font-size: 0.95rem;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+/* ============================================================
+   레이아웃
+   ============================================================ */
+.layout {
+  position: relative;
+  z-index: 1;
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: 0 var(--page-pad);
+  display: grid;
+  grid-template-columns: var(--sidebar-width) 1fr;
+  gap: var(--gap);
+  align-items: start;
+}
+
+.column {
+  display: grid;
+  gap: var(--gap);
+}
+
+/* ============================================================
+   패널 (구름 카드)
+   ============================================================ */
+.panel {
+  background: var(--card-bg);
+  border-radius: var(--card-radius);
+  padding: var(--card-pad);
+  box-shadow: var(--card-shadow);
+}
+
+.panel__title {
+  margin: 0 0 16px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.panel__count {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.panel__desc {
+  margin: -8px 0 16px;
+  font-size: 0.88rem;
+  color: var(--text-muted);
+}
+
+/* ============================================================
+   폼
+   ============================================================ */
+.form {
+  display: grid;
+  gap: 14px;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+}
+
+.field__label {
+  font-size: 0.83rem;
+  font-weight: 600;
+  color: var(--text-soft);
+}
+
+.field__label em {
+  font-style: normal;
+  color: var(--required);
+}
+
+.field input,
+.field textarea {
+  width: 100%;
+  padding: 11px 13px;
+  font: inherit;
+  font-size: 0.92rem;
+  color: inherit;
+  background: var(--input-bg);
+  border: 1.5px solid var(--input-border);
+  border-radius: var(--input-radius);
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.field input:focus,
+.field textarea:focus {
+  outline: none;
+  background: #fff;
+  border-color: var(--accent-soft);
+}
+
+.field textarea {
+  resize: vertical;
+  min-height: 68px;
+}
+
+.form__error {
+  margin: 0;
+  min-height: 1.2em;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--danger);
+}
+
+/* ============================================================
+   버튼
+   ============================================================ */
+.button {
+  padding: 12px 18px;
+  font: inherit;
+  font-size: 0.94rem;
+  font-weight: 700;
+  border: none;
+  border-radius: 14px;
+  cursor: pointer;
+  transition: transform 0.12s, box-shadow 0.15s, background 0.15s;
+}
+
+.button--primary {
+  color: #fff;
+  background: linear-gradient(135deg, var(--accent), var(--accent-soft));
+  box-shadow: 0 6px 16px hsla(var(--sky-hue), 60%, 45%, 0.32);
+}
+
+.button--primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 9px 20px hsla(var(--sky-hue), 60%, 45%, 0.4);
+}
+
+.button--ghost {
+  color: var(--text-soft);
+  background: #eef3f7;
+}
+
+.button--danger {
+  color: #fff;
+  background: var(--danger);
+}
+
+/* ============================================================
+   검색
+   ============================================================ */
+.panel--search {
+  padding: 14px 18px;
+}
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.search__icon {
+  font-size: 1.3rem;
+  color: var(--text-muted);
+}
+
+.search input {
+  flex: 1;
+  padding: 8px 0;
+  font: inherit;
+  font-size: 0.95rem;
+  color: inherit;
+  background: none;
+  border: none;
+}
+
+.search input:focus {
+  outline: none;
+}
+
+/* ============================================================
+   리캡
+   ============================================================ */
+.week-list {
+  display: grid;
+  gap: 10px;
+}
+
+.recap__status {
+  margin: 12px 0 0;
+  min-height: 1.2em;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.recap__canvas {
+  display: none;
+  width: 100%;
+  margin-top: 14px;
+  border-radius: 14px;
+}
+
+/* ============================================================
+   타임라인
+   ============================================================ */
+.timeline {
+  display: grid;
+  gap: 12px;
+}
+
+.empty {
+  margin: 0;
+  padding: 28px 8px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.92rem;
+  line-height: 1.7;
+}
