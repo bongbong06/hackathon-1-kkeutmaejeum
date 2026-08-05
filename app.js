@@ -38,6 +38,7 @@ const memberCountInput = document.getElementById('memberCountInput');
 const memoInput = document.getElementById('memoInput');
 const formError = document.getElementById('formError');
 const countLabel = document.getElementById('countLabel');
+const timeline = document.getElementById('timeline');
 
 /* ============================================================
    저장소
@@ -98,12 +99,93 @@ function handleSubmit(event) {
 }
 
 /* ============================================================
+   하늘색 정하기
+   활동명을 해시해 색조(H)를 정한다. 같은 활동은 언제 봐도 같은 하늘이다.
+   ============================================================ */
+
+// 문자열을 정수 해시로 바꾼다
+function hashCode(text) {
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    hash = (hash * 31 + text.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash);
+}
+
+// 활동명을 하늘 색조(H)로 바꾼다
+function hueOf(title) {
+  const [min, max] = THEME.hueRange;
+  return min + (hashCode(title) % (max - min));
+}
+
+/* ============================================================
+   조회
+   ============================================================ */
+
+// 화면에 보여줄 활동을 최신순으로 돌려준다
+function getFilteredActivities() {
+  return activities.slice().sort((a, b) => b.date.localeCompare(a.date));
+}
+
+/* ============================================================
    화면 그리기
    ============================================================ */
 
+// 날짜를 "2026. 03. 02 월요일" 형태로 바꾼다
+function formatDate(date) {
+  const days = ['일', '월', '화', '수', '목', '금', '토'];
+  const [year, month, day] = date.split('-');
+  const weekday = days[new Date(`${date}T00:00:00`).getDay()];
+  return `${year}. ${month}. ${day} ${weekday}요일`;
+}
+
+// 활동 1건을 타임라인 카드로 만든다
+function createCard(activity) {
+  const hue = hueOf(activity.title);
+
+  const card = document.createElement('article');
+  card.className = 'card';
+  card.style.setProperty('--card-hue', hue);
+
+  const meta = [activity.place, `${activity.memberCount}명이 함께함`]
+    .filter(Boolean)
+    .join(' · ');
+
+  card.innerHTML = `
+    <p class="card__date"></p>
+    <h3 class="card__title"></h3>
+    <p class="card__meta"></p>
+    <p class="card__memo"></p>
+  `;
+  card.querySelector('.card__date').textContent = formatDate(activity.date);
+  card.querySelector('.card__title').textContent = activity.title;
+  card.querySelector('.card__meta').textContent = meta;
+  card.querySelector('.card__memo').textContent = activity.memo;
+
+  return card;
+}
+
+// 타임라인을 그린다
+function renderList() {
+  const list = getFilteredActivities();
+  timeline.textContent = '';
+
+  if (list.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'empty';
+    empty.textContent = '아직 기록된 날이 없어요.\n첫 번째 이야기를 남겨보세요.';
+    timeline.appendChild(empty);
+    return;
+  }
+
+  list.forEach((activity) => timeline.appendChild(createCard(activity)));
+}
+
 // 화면 전체를 다시 그린다. 데이터가 바뀌면 항상 이 함수만 부른다
 function render() {
-  countLabel.textContent = activities.length > 0 ? `${activities.length}일` : '';
+  const list = getFilteredActivities();
+  countLabel.textContent = list.length > 0 ? `${list.length}일` : '';
+  renderList();
 }
 
 /* ============================================================
