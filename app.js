@@ -4,12 +4,24 @@
    style.css 의 :root 변수와 짝이 맞도록 유지한다.
    ============================================================ */
 const THEME = {
-  // 활동명 해시가 이 색조 범위 안에서만 움직인다 (하늘색 유지)
-  hueRange: [20, 260],
+  // 활동명 해시가 이 대역 중 하나로 떨어진다.
+  // 초록(잔디색)을 피해야 언덕과 구분되고 하늘로 읽힌다.
+  // 맑은 하늘이 기본이므로 그 대역을 두 번 넣어 더 자주 나오게 한다.
+  hueBands: [
+    [188, 215], // 맑은 하늘
+    [205, 235], // 맑은 하늘
+    [235, 270], // 늦은 오후
+    [278, 315], // 노을 진 보라
+    [12, 38]    // 해질 무렵 주황
+  ],
 
-  sky: { topLight: 56, bottomLight: 87, sat: 72 },
-  cloud: { color: 'rgba(255, 255, 255, 0.9)', count: [4, 8] },
-  hill: { hueShift: -160, backLight: 62, frontLight: 45, sat: 38 },
+  sky: { topLight: 58, bottomLight: 88, sat: 62 },
+
+  // 구름은 글자를 덮지 않도록 화면 위쪽 띠 안에서만 떠 있는다
+  cloud: { color: 'rgba(255, 255, 255, 0.9)', count: [3, 5], bandTop: 0.06, bandBottom: 0.24 },
+
+  // 언덕은 하늘색이 어떻게 바뀌든 늘 초록이다
+  hill: { hue: 95, backLight: 62, frontLight: 45, sat: 38 },
 
   text: { color: '#ffffff', shadow: 'rgba(0, 0, 0, 0.25)' },
   font: 'system-ui, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif',
@@ -40,6 +52,9 @@ const formError = document.getElementById('formError');
 const countLabel = document.getElementById('countLabel');
 const timeline = document.getElementById('timeline');
 const searchInput = document.getElementById('searchInput');
+const weekSelector = document.getElementById('weekSelector');
+const recapStatus = document.getElementById('recapStatus');
+const recapCanvas = document.getElementById('recapCanvas');
 
 /* ============================================================
    저장소
@@ -145,10 +160,12 @@ function hashCode(text) {
   return Math.abs(hash);
 }
 
-// 활동명을 하늘 색조(H)로 바꾼다
+// 활동명을 하늘 색조(H)로 바꾼다. 같은 활동은 언제 봐도 같은 하늘이다
 function hueOf(title) {
-  const [min, max] = THEME.hueRange;
-  return min + (hashCode(title) % (max - min));
+  const hash = hashCode(title);
+  const bands = THEME.hueBands;
+  const [min, max] = bands[hash % bands.length];
+  return min + (Math.floor(hash / bands.length) % (max - min));
 }
 
 /* ============================================================
@@ -251,11 +268,289 @@ function renderList() {
   list.forEach((activity) => timeline.appendChild(createCard(activity)));
 }
 
+/* ============================================================
+   주차 묶기
+   ============================================================ */
+
+// 그 날이 속한 주의 월요일을 돌려준다
+function mondayOf(date) {
+  const day = new Date(`${date}T00:00:00`);
+  const offset = (day.getDay() + 6) % 7; // 월요일을 0으로 맞춘다
+  day.setDate(day.getDate() - offset);
+  return day;
+}
+
+// 그 날이 속한 주의 키를 "2026-W32" 형태로 돌려준다
+function getWeekKey(date) {
+  const monday = mondayOf(date);
+  const thursday = new Date(monday);
+  thursday.setDate(monday.getDate() + 3); // 그 주의 목요일이 연도를 정한다
+
+  const firstThursday = new Date(thursday.getFullYear(), 0, 4);
+  firstThursday.setDate(firstThursday.getDate() - ((firstThursday.getDay() + 6) % 7) + 3);
+
+  const week = 1 + Math.round((thursday - firstThursday) / (7 * 24 * 60 * 60 * 1000));
+  return `${thursday.getFullYear()}-W${String(week).padStart(2, '0')}`;
+}
+
+// "8월 첫째 주" 처럼 사람이 읽는 이름을 만든다
+function weekLabel(monday) {
+  const names = ['첫째', '둘째', '셋째', '넷째', '다섯째', '여섯째'];
+  const nth = Math.floor((monday.getDate() - 1) / 7);
+  return `${monday.getMonth() + 1}월 ${names[nth]} 주`;
+}
+
+// 활동을 주차별로 묶어 최신 주가 먼저 오도록 돌려준다
+function groupByWeek() {
+  const weeks = new Map();
+
+  activities.forEach((activity) => {
+    const key = getWeekKey(activity.date);
+    if (!weeks.has(key)) {
+      weeks.set(key, { key, monday: mondayOf(activity.date), items: [] });
+    }
+    weeks.get(key).items.push(activity);
+  });
+
+  return [...weeks.values()]
+    .map((week) => ({
+      ...week,
+      label: weekLabel(week.monday),
+      items: week.items.slice().sort((a, b) => a.date.localeCompare(b.date))
+    }))
+    .sort((a, b) => b.key.localeCompare(a.key));
+}
+
+// 영상으로 만들 주차 목록을 그린다
+function renderWeekSelector() {
+  const weeks = groupByWeek();
+  weekSelector.textContent = '';
+
+  if (weeks.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'empty';
+    empty.textContent = '기록이 쌓이면 이곳에서 그 주의 영상을 만들 수 있어요.';
+    weekSelector.appendChild(empty);
+    return;
+  }
+
+  weeks.forEach((week) => {
+    const row = document.createElement('div');
+    row.className = 'week';
+    row.innerHTML = `
+      <div class="week__info">
+        <strong class="week__label"></strong>
+        <span class="week__count"></span>
+      </div>
+      <button type="button" class="button button--primary button--small js-recap">영상으로 보기</button>
+    `;
+    row.querySelector('.week__label').textContent = week.label;
+    row.querySelector('.week__count').textContent = `함께한 ${week.items.length}일`;
+    row.querySelector('.js-recap').addEventListener('click', () => createWeeklyRecap(week));
+    weekSelector.appendChild(row);
+  });
+}
+
+/* ============================================================
+   하늘 그리기 (canvas)
+   ============================================================ */
+
+// 같은 씨앗이면 항상 같은 순서의 난수를 돌려준다
+function makeRandom(seed) {
+  let value = seed % 2147483647;
+  if (value <= 0) {
+    value += 2147483646;
+  }
+  return () => {
+    value = (value * 16807) % 2147483647;
+    return value / 2147483647;
+  };
+}
+
+// 하늘 그라데이션을 칠한다
+function drawSky(ctx, hue) {
+  const { width, height } = ctx.canvas;
+  const gradient = ctx.createLinearGradient(0, 0, 0, height);
+  gradient.addColorStop(0, `hsl(${hue}, ${THEME.sky.sat}%, ${THEME.sky.topLight}%)`);
+  gradient.addColorStop(1, `hsl(${hue}, ${THEME.sky.sat}%, ${THEME.sky.bottomLight}%)`);
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, width, height);
+}
+
+// 뭉게구름을 그린다. 배치는 씨앗으로 정해지므로 같은 활동은 같은 구름을 갖는다
+function drawClouds(ctx, seed) {
+  const { width, height } = ctx.canvas;
+  const random = makeRandom(seed);
+  const [minCount, maxCount] = THEME.cloud.count;
+  const count = minCount + Math.floor(random() * (maxCount - minCount + 1));
+
+  ctx.fillStyle = THEME.cloud.color;
+
+  const bandTop = height * THEME.cloud.bandTop;
+  const bandHeight = height * (THEME.cloud.bandBottom - THEME.cloud.bandTop);
+
+  for (let i = 0; i < count; i += 1) {
+    const centerX = random() * width;
+    const centerY = bandTop + random() * bandHeight;
+    const scale = 0.5 + random() * 0.6;
+    const puffs = 4 + Math.floor(random() * 3);
+
+    ctx.globalAlpha = 0.45 + random() * 0.3;
+    for (let p = 0; p < puffs; p += 1) {
+      const offsetX = (p - puffs / 2) * 42 * scale;
+      const offsetY = (random() - 0.5) * 22 * scale;
+      const radius = (32 + random() * 26) * scale;
+      ctx.beginPath();
+      ctx.arc(centerX + offsetX, centerY + offsetY, radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  ctx.globalAlpha = 1;
+}
+
+// 평원 언덕 두 겹을 그린다
+function drawHills(ctx) {
+  const { width, height } = ctx.canvas;
+  const hillHue = THEME.hill.hue;
+
+  const layers = [
+    { light: THEME.hill.backLight, top: height * 0.72, dip: height * 0.66 },
+    { light: THEME.hill.frontLight, top: height * 0.82, dip: height * 0.78 }
+  ];
+
+  layers.forEach((layer) => {
+    ctx.fillStyle = `hsl(${hillHue}, ${THEME.hill.sat}%, ${layer.light}%)`;
+    ctx.beginPath();
+    ctx.moveTo(0, layer.top);
+    ctx.quadraticCurveTo(width * 0.25, layer.dip - 40, width * 0.5, layer.top);
+    ctx.quadraticCurveTo(width * 0.75, layer.top + 40, width, layer.dip);
+    ctx.lineTo(width, height);
+    ctx.lineTo(0, height);
+    ctx.closePath();
+    ctx.fill();
+  });
+}
+
+// 배경(하늘 + 구름 + 언덕)을 한 번에 그린다
+function drawScene(ctx, hue, seed) {
+  drawSky(ctx, hue);
+  drawClouds(ctx, seed);
+  drawHills(ctx);
+}
+
+// 글자를 그린다
+function drawText(ctx, text, x, y, size, weight = 400, alpha = 1) {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.font = `${weight} ${size}px ${THEME.font}`;
+  ctx.fillStyle = THEME.text.color;
+  ctx.shadowColor = THEME.text.shadow;
+  ctx.shadowBlur = 14;
+  ctx.shadowOffsetY = 2;
+  ctx.fillText(text, x, y);
+  ctx.restore();
+}
+
+// 장면 위에 흰 막을 덮어 페이드 인/아웃을 만든다
+function applyFade(ctx, progress) {
+  const edge = 0.15;
+  const visible = Math.max(0, Math.min(1, progress / edge, (1 - progress) / edge));
+  if (visible < 1) {
+    ctx.fillStyle = `rgba(255, 255, 255, ${1 - visible})`;
+    ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+  }
+}
+
+/* ============================================================
+   리캡 프레임
+   ============================================================ */
+
+// 표지 프레임
+function drawCoverFrame(ctx, week, progress) {
+  drawScene(ctx, hueOf(week.key), hashCode(week.key));
+  drawText(ctx, week.label, 96, 300, 92, 800);
+  drawText(ctx, `우리가 함께한 ${week.items.length}일`, 96, 380, 44, 500);
+  applyFade(ctx, progress);
+}
+
+// 활동 1건의 하늘 프레임
+function drawActivityFrame(ctx, activity, progress) {
+  drawScene(ctx, hueOf(activity.title), hashCode(activity.title));
+
+  const meta = [activity.place, `${activity.memberCount}명이 함께함`].filter(Boolean).join('  ·  ');
+
+  drawText(ctx, formatDate(activity.date), 96, 250, 34, 600, 0.9);
+  drawText(ctx, activity.title, 96, 348, 82, 800);
+  drawText(ctx, meta, 96, 410, 34, 500, 0.95);
+
+  if (activity.memo) {
+    const memo = activity.memo.length > 34 ? `${activity.memo.slice(0, 34)}…` : activity.memo;
+    drawText(ctx, `“${memo}”`, 96, 480, 30, 400, 0.85);
+  }
+
+  applyFade(ctx, progress);
+}
+
+// 마무리 프레임
+function drawOutroFrame(ctx, week, progress) {
+  const total = week.items.reduce((sum, activity) => sum + activity.memberCount, 0);
+
+  drawScene(ctx, hueOf(`${week.key}-outro`), hashCode(`${week.key}-outro`));
+  drawText(ctx, `이번 주, ${total}명이 함께했어요`, 96, 320, 66, 800);
+  drawText(ctx, '다음 주에도 만나요', 96, 396, 40, 500, 0.92);
+  applyFade(ctx, progress);
+}
+
+/* ============================================================
+   리캡 영상 (9단계에서 녹화를 붙인다)
+   ============================================================ */
+
+// 그 주의 장면을 순서대로 늘어놓는다
+function buildScenes(week) {
+  const { coverSec, perActivitySec, outroSec } = THEME.video;
+
+  return [
+    { seconds: coverSec, draw: (ctx, p) => drawCoverFrame(ctx, week, p) },
+    ...week.items.map((activity) => ({
+      seconds: perActivitySec,
+      draw: (ctx, p) => drawActivityFrame(ctx, activity, p)
+    })),
+    { seconds: outroSec, draw: (ctx, p) => drawOutroFrame(ctx, week, p) }
+  ];
+}
+
+// 경과 시간에 해당하는 장면을 canvas에 그린다
+function drawAtTime(ctx, scenes, elapsed) {
+  let remaining = elapsed;
+
+  for (const scene of scenes) {
+    if (remaining < scene.seconds) {
+      scene.draw(ctx, remaining / scene.seconds);
+      return true;
+    }
+    remaining -= scene.seconds;
+  }
+
+  return false; // 영상이 끝났다
+}
+
+// 주간 리캡을 만든다 (지금은 미리보기까지, 녹화는 9단계)
+function createWeeklyRecap(week) {
+  const ctx = recapCanvas.getContext('2d');
+  const scenes = buildScenes(week);
+
+  recapCanvas.style.display = 'block';
+  drawAtTime(ctx, scenes, 1.5); // 표지 한가운데를 미리 보여준다
+  recapStatus.textContent = `${week.label} · 미리보기`;
+}
+
 // 화면 전체를 다시 그린다. 데이터가 바뀌면 항상 이 함수만 부른다
 function render() {
   const list = getFilteredActivities();
   countLabel.textContent = list.length > 0 ? `${list.length}일` : '';
   renderList();
+  renderWeekSelector();
 }
 
 /* ============================================================

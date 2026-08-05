@@ -314,6 +314,31 @@ body {
   gap: 10px;
 }
 
+.week {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: #f4f8fb;
+  border-radius: 14px;
+}
+
+.week__info {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.week__label {
+  font-size: 0.98rem;
+}
+
+.week__count {
+  font-size: 0.83rem;
+  color: var(--text-muted);
+}
+
 .recap__status {
   margin: 12px 0 0;
   min-height: 1.2em;
