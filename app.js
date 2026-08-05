@@ -27,7 +27,31 @@ const THEME = {
   font: 'system-ui, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif',
 
   // 리캡 영상
-  video: { width: 1280, height: 720, fps: 30, coverSec: 3, perActivitySec: 4, outroSec: 3 }
+  video: { width: 1280, height: 720, fps: 30, coverSec: 3, perActivitySec: 4, outroSec: 3 },
+
+  // 기억의 산책길
+  // 길 = 시간, 나무 = 한 주, 연 = 그 주의 활동 한 건
+  walk: {
+    focal: 620,          // 초점 거리. 짧으면 광각이 되어 길이 과하게 벌어진다
+    near: 300,           // 카메라와 가장 가까운 나무 사이 거리
+    horizonRatio: 0.44,  // 화면 높이 대비 지평선 위치
+    groundY: 130,        // 지평선에서 바닥까지 (월드 단위)
+    roadHalf: 110,       // 길 반폭
+    treeX: 250,          // 길 중심에서 나무까지
+    jitter: 40,          // 나무 위치 변주 폭
+
+    gapBase: 240,        // 주 사이 기본 간격
+    gapExtra: 70,        // 공백 1주당 추가 간격
+    gapMaxWeeks: 7,      // 공백은 이만큼까지만 벌어진다
+
+    growYears: 1,        // 이 기간에 걸쳐
+    growMax: 2,          // 최대 이만큼 더 자란다 (1 + 2 = 3배)
+    treeBase: 105,       // 나무 기본 높이 (월드 단위)
+
+    kiteSize: 26,        // 연 크기
+    kiteRise: 62,        // 나무 꼭대기에서 연까지 거리. 크면 화면 위로 벗어난다
+    kiteSpread: 78       // 연 사이 벌어짐
+  }
 };
 
 /* ============================================================
@@ -379,8 +403,8 @@ function drawSky(ctx, hue) {
 }
 
 // 뭉게구름을 그린다. 배치는 씨앗으로 정해지므로 같은 활동은 같은 구름을 갖는다
-function drawClouds(ctx, seed) {
-  const { width, height } = ctx.canvas;
+// 산책길처럼 캔버스 크기와 그리는 영역이 다를 때는 width, height 를 직접 넘긴다
+function drawClouds(ctx, seed, width = ctx.canvas.width, height = ctx.canvas.height) {
   const random = makeRandom(seed);
   const [minCount, maxCount] = THEME.cloud.count;
   const count = minCount + Math.floor(random() * (maxCount - minCount + 1));
@@ -628,6 +652,439 @@ function render() {
   countLabel.textContent = list.length > 0 ? `${list.length}일` : '';
   renderList();
   renderWeekSelector();
+  refreshWalk();
+}
+
+/* ============================================================
+   기억의 산책길
+
+   길   = 시간. 걸어갈수록 과거로 간다
+   나무 = 한 주. 오래된 주일수록 크게 자라 있다
+   연   = 그 주의 활동 한 건. 나무 위 하늘에 떠 있다
+   ============================================================ */
+
+const walkCanvas = document.getElementById('walkCanvas');
+const walkCtx = walkCanvas.getContext('2d');
+const walkInfo = document.getElementById('walkInfo');
+const turnButton = document.getElementById('turnButton');
+
+let trees = [];
+let cameraZ = 0;
+let targetZ = 0;
+let facing = 1;        // 1 = 과거 쪽을 봄, -1 = 지나온 쪽을 봄
+let turning = 0;       // 0이 아니면 돌아보는 중 (0~1)
+let walkStart = performance.now();
+
+// 캔버스를 화면 크기에 맞춘다. 선명하게 보이도록 픽셀 비율을 반영한다
+function resizeWalkCanvas() {
+  const ratio = window.devicePixelRatio || 1;
+  const width = walkCanvas.clientWidth;
+  const height = walkCanvas.clientHeight;
+
+  walkCanvas.width = Math.round(width * ratio);
+  walkCanvas.height = Math.round(height * ratio);
+  walkCtx.setTransform(ratio, 0, 0, ratio, 0, 0);
+}
+
+// 월드 좌표를 화면 좌표로 옮긴다. 카메라 뒤에 있으면 null
+function project(worldX, worldY, z) {
+  const { focal, near } = THEME.walk;
+  const depth = facing * (z - cameraZ) + near;
+
+  if (depth <= 1) {
+    return null;
+  }
+
+  const scale = focal / depth;
+  return {
+    x: walkCanvas.clientWidth / 2 + worldX * facing * scale,
+    y: horizonY() + worldY * scale,
+    scale,
+    depth
+  };
+}
+
+// 지평선의 화면 y 좌표
+function horizonY() {
+  return walkCanvas.clientHeight * THEME.walk.horizonRatio;
+}
+
+/* ---------- 나무 데이터 ---------- */
+
+// 오래된 주일수록 나무가 크다. 시간이 지나면 가만히 둬도 자란다
+function grownScale(monday) {
+  const daysAgo = (Date.now() - monday.getTime()) / 86400000;
+  const years = Math.max(daysAgo, 0) / (365 * THEME.walk.growYears);
+  return 1 + Math.min(years, THEME.walk.growMax);
+}
+
+// 주차를 길 위에 늘어놓는다. 활동이 뜸했던 기간은 그만큼 먼 거리가 된다
+function buildTrees() {
+  const weeks = groupByWeek(); // 최신 주가 먼저
+  const { gapBase, gapExtra, gapMaxWeeks, treeX, jitter } = THEME.walk;
+
+  let z = 0;
+
+  return weeks.map((week, index) => {
+    if (index > 0) {
+      const weeksApart = Math.round(
+        (weeks[index - 1].monday - week.monday) / (7 * 86400000)
+      );
+      // 공백이 길수록 벌어지되 상한을 둔다. 1년을 쉬어도 무한정 걷지 않는다
+      z += gapBase + Math.min(Math.max(weeksApart - 1, 0), gapMaxWeeks) * gapExtra;
+    }
+
+    const seed = hashCode(week.key);
+
+    return {
+      week,
+      z,
+      side: index % 2 === 0 ? -1 : 1,
+      offsetX: treeX + (seed % (jitter * 2)) - jitter,
+      grown: grownScale(week.monday),
+      seed
+    };
+  });
+}
+
+/* ---------- 배경 ---------- */
+
+// 지평선 아래 들판을 칠한다
+function drawField(ctx) {
+  const width = walkCanvas.clientWidth;
+  const height = walkCanvas.clientHeight;
+  const horizon = horizonY();
+
+  const gradient = ctx.createLinearGradient(0, horizon, 0, height);
+  gradient.addColorStop(0, `hsl(${THEME.hill.hue}, ${THEME.hill.sat}%, 66%)`);
+  gradient.addColorStop(1, `hsl(${THEME.hill.hue}, ${THEME.hill.sat}%, 42%)`);
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, horizon, width, height - horizon);
+}
+
+// 길을 그린다. 멀어질수록 좁아져 지평선의 한 점으로 모인다
+function drawRoad(ctx) {
+  const { roadHalf, groundY } = THEME.walk;
+  // near 는 카메라 코앞이라 화면 아래를 가득 채우고, far 는 지평선의 한 점으로 모인다
+  const nearZ = cameraZ - facing * (THEME.walk.near - 20);
+  const far = cameraZ + facing * 6000;
+
+  const a = project(-roadHalf, groundY, nearZ);
+  const b = project(roadHalf, groundY, nearZ);
+  const c = project(roadHalf, groundY, far);
+  const d = project(-roadHalf, groundY, far);
+
+  if (!a || !b || !c || !d) {
+    return;
+  }
+
+  ctx.fillStyle = 'hsl(38, 34%, 72%)';
+  ctx.beginPath();
+  ctx.moveTo(a.x, a.y);
+  ctx.lineTo(b.x, b.y);
+  ctx.lineTo(c.x, c.y);
+  ctx.lineTo(d.x, d.y);
+  ctx.closePath();
+  ctx.fill();
+}
+
+/* ---------- 나무와 연 ---------- */
+
+// 나무 한 그루를 그린다
+function drawTree(ctx, tree) {
+  const { treeBase, groundY } = THEME.walk;
+  const worldX = tree.side * tree.offsetX;
+  const height = treeBase * tree.grown;
+
+  const root = project(worldX, groundY, tree.z);
+  const top = project(worldX, groundY - height, tree.z);
+
+  if (!root || !top) {
+    return null;
+  }
+
+  const trunkWidth = Math.max(2, 14 * tree.grown * root.scale);
+  const leafRadius = Math.max(6, 52 * tree.grown * root.scale);
+  const light = 34 + (tree.seed % 14);
+
+  // 기둥
+  ctx.fillStyle = 'hsl(28, 32%, 34%)';
+  ctx.beginPath();
+  ctx.moveTo(root.x - trunkWidth / 2, root.y);
+  ctx.lineTo(root.x + trunkWidth / 2, root.y);
+  ctx.lineTo(top.x + trunkWidth / 4, top.y);
+  ctx.lineTo(top.x - trunkWidth / 4, top.y);
+  ctx.closePath();
+  ctx.fill();
+
+  // 잎 — 원 몇 개를 겹쳐 뭉치를 만든다
+  const random = makeRandom(tree.seed);
+  ctx.fillStyle = `hsl(${THEME.hill.hue - 6}, 42%, ${light}%)`;
+  for (let i = 0; i < 4; i += 1) {
+    const dx = (random() - 0.5) * leafRadius * 1.1;
+    const dy = -leafRadius * 0.45 + (random() - 0.5) * leafRadius * 0.7;
+    ctx.beginPath();
+    ctx.arc(top.x + dx, top.y + dy, leafRadius * (0.62 + random() * 0.3), 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  return { top, root, leafRadius };
+}
+
+// 연 하나를 그린다. 마름모 몸통 + 꼬리 + 나무로 이어지는 줄
+function drawKite(ctx, x, y, size, hue, anchor) {
+  // 줄
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+  ctx.lineWidth = Math.max(0.5, size * 0.04);
+  ctx.beginPath();
+  ctx.moveTo(anchor.x, anchor.y);
+  ctx.quadraticCurveTo((anchor.x + x) / 2 + size * 0.4, (anchor.y + y) / 2, x, y);
+  ctx.stroke();
+
+  // 몸통
+  ctx.fillStyle = `hsl(${hue}, 74%, 62%)`;
+  ctx.beginPath();
+  ctx.moveTo(x, y - size);
+  ctx.lineTo(x + size * 0.62, y);
+  ctx.lineTo(x, y + size);
+  ctx.lineTo(x - size * 0.62, y);
+  ctx.closePath();
+  ctx.fill();
+
+  // 십자 살
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+  ctx.beginPath();
+  ctx.moveTo(x, y - size);
+  ctx.lineTo(x, y + size);
+  ctx.moveTo(x - size * 0.62, y);
+  ctx.lineTo(x + size * 0.62, y);
+  ctx.stroke();
+
+  // 꼬리
+  ctx.strokeStyle = `hsl(${hue}, 74%, 74%)`;
+  ctx.lineWidth = Math.max(0.5, size * 0.12);
+  ctx.beginPath();
+  ctx.moveTo(x, y + size);
+  ctx.quadraticCurveTo(x + size * 0.5, y + size * 1.8, x - size * 0.3, y + size * 2.6);
+  ctx.stroke();
+}
+
+// 그 주의 활동들을 나무 위에 연으로 띄운다
+function drawKites(ctx, tree, treeParts, time) {
+  const { kiteSize, kiteRise, kiteSpread, groundY, treeBase } = THEME.walk;
+  const worldX = tree.side * tree.offsetX;
+  const height = treeBase * tree.grown;
+  const items = tree.week.items;
+
+  items.forEach((activity, index) => {
+    const offset = (index - (items.length - 1) / 2) * kiteSpread;
+    const phase = hashCode(activity.title) % 100;
+    const sway = Math.sin(time * 1.1 + phase) * 14;
+
+    const spot = project(
+      worldX + offset + sway,
+      groundY - height - kiteRise - Math.abs(offset) * 0.3,
+      tree.z
+    );
+
+    if (!spot) {
+      return;
+    }
+
+    drawKite(
+      ctx,
+      spot.x,
+      spot.y,
+      Math.max(3, kiteSize * spot.scale),
+      hueOf(activity.title),
+      treeParts.top
+    );
+  });
+}
+
+/* ---------- 한 프레임 ---------- */
+
+function drawWalkScene(time) {
+  const ctx = walkCtx;
+  const width = walkCanvas.clientWidth;
+  const height = walkCanvas.clientHeight;
+
+  ctx.clearRect(0, 0, width, height);
+
+  // 하늘
+  const gradient = ctx.createLinearGradient(0, 0, 0, horizonY() + 40);
+  gradient.addColorStop(0, `hsl(205, ${THEME.sky.sat}%, ${THEME.sky.topLight}%)`);
+  gradient.addColorStop(1, `hsl(205, ${THEME.sky.sat}%, ${THEME.sky.bottomLight}%)`);
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, width, horizonY() + 40);
+
+  // 구름은 카메라를 따라 아주 느리게 밀린다. 같은 띠를 두 번 그려 이어 붙인다
+  const drift = (cameraZ * 0.05) % width;
+  ctx.save();
+  ctx.translate(-drift, 0);
+  drawClouds(ctx, 20260805, width, horizonY() * 1.6);
+  ctx.translate(width, 0);
+  drawClouds(ctx, 20260805, width, horizonY() * 1.6);
+  ctx.restore();
+
+  drawField(ctx);
+  drawRoad(ctx);
+
+  // 먼 나무부터 그려야 가까운 나무가 위에 온다
+  const sorted = trees
+    .map((tree) => ({ tree, depth: facing * (tree.z - cameraZ) }))
+    .filter((entry) => entry.depth > -THEME.walk.near)
+    .sort((a, b) => b.depth - a.depth);
+
+  sorted.forEach(({ tree }) => {
+    const parts = drawTree(ctx, tree);
+    if (parts) {
+      drawKites(ctx, tree, parts, time);
+    }
+  });
+
+  applyTurnVeil(ctx, width, height);
+}
+
+function walkLoop() {
+  const time = (performance.now() - walkStart) / 1000;
+
+  // 목표 위치를 부드럽게 따라간다
+  cameraZ += (targetZ - cameraZ) * 0.12;
+
+  drawWalkScene(time);
+  updateWalkInfo();
+  requestAnimationFrame(walkLoop);
+}
+
+// 나무 데이터를 다시 만들고 이동 범위를 갱신한다
+function refreshWalk() {
+  trees = buildTrees();
+  targetZ = clampZ(targetZ);
+}
+
+// 길 밖으로 나가지 않게 막는다
+function clampZ(value) {
+  const last = trees.length > 0 ? trees[trees.length - 1].z : 0;
+  return Math.max(-THEME.walk.gapBase * 0.4, Math.min(value, last));
+}
+
+/* ---------- 걷기 ---------- */
+
+// 길 위를 걸어간다. 양수면 과거 쪽으로
+function walkBy(amount) {
+  targetZ = clampZ(targetZ + amount);
+}
+
+// 카메라 앞에서 가장 가까운 나무를 찾아 그 주의 기록을 보여준다
+function updateWalkInfo() {
+  let nearest = null;
+  let nearestDepth = Infinity;
+
+  trees.forEach((tree) => {
+    const depth = facing * (tree.z - cameraZ);
+    if (depth > -40 && depth < nearestDepth) {
+      nearest = tree;
+      nearestDepth = depth;
+    }
+  });
+
+  if (!nearest || nearestDepth > THEME.walk.gapBase * 1.2) {
+    walkInfo.classList.remove('walk__info--on');
+    return;
+  }
+
+  const week = nearest.week;
+  walkInfo.innerHTML = '<strong></strong><span></span>';
+  walkInfo.querySelector('strong').textContent = `${week.label} · 함께한 ${week.items.length}일`;
+  walkInfo.querySelector('span').textContent = week.items.map((a) => a.title).join(' · ');
+  walkInfo.classList.add('walk__info--on');
+}
+
+/* ---------- 돌아보기 ---------- */
+
+// 카메라를 180도 돌린다. 돌아가는 순간만 하늘색 막으로 가려 회전처럼 보이게 한다
+function toggleFacing() {
+  if (turning > 0) {
+    return;
+  }
+
+  turning = 0.001;
+  const startedAt = performance.now();
+  let flipped = false;
+
+  const spin = setInterval(() => {
+    const t = Math.min((performance.now() - startedAt) / 600, 1);
+    turning = t;
+
+    if (!flipped && t >= 0.5) {
+      facing *= -1;
+      flipped = true;
+      turnButton.textContent = facing === 1 ? '지나온 길 돌아보기' : '앞을 다시 보기';
+    }
+
+    if (t >= 1) {
+      clearInterval(spin);
+      turning = 0;
+    }
+  }, 1000 / 60);
+}
+
+// 돌아보는 동안 화면을 가린다
+function applyTurnVeil(ctx, width, height) {
+  if (turning <= 0) {
+    return;
+  }
+
+  // 0 -> 0.5 로 갈수록 짙어지고, 0.5 -> 1 로 갈수록 걷힌다
+  const cover = 1 - Math.abs(turning - 0.5) * 2;
+  ctx.fillStyle = `hsla(205, 70%, 78%, ${cover})`;
+  ctx.fillRect(0, 0, width, height);
+}
+
+/* ---------- 조작 연결 ---------- */
+
+function bindWalkControls() {
+  walkCanvas.addEventListener('wheel', (event) => {
+    event.preventDefault();
+    walkBy(event.deltaY * 0.8);
+  }, { passive: false });
+
+  let dragging = false;
+  let lastX = 0;
+
+  walkCanvas.addEventListener('pointerdown', (event) => {
+    dragging = true;
+    lastX = event.clientX;
+    walkCanvas.setPointerCapture(event.pointerId);
+  });
+
+  walkCanvas.addEventListener('pointermove', (event) => {
+    if (!dragging) {
+      return;
+    }
+    walkBy((lastX - event.clientX) * 2.4);
+    lastX = event.clientX;
+  });
+
+  walkCanvas.addEventListener('pointerup', () => {
+    dragging = false;
+  });
+
+  window.addEventListener('keydown', (event) => {
+    if (document.activeElement !== document.body) {
+      return; // 입력 중에는 화살표를 가로채지 않는다
+    }
+    if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
+      walkBy(90);
+    }
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
+      walkBy(-90);
+    }
+  });
+
+  turnButton.addEventListener('click', toggleFacing);
+  window.addEventListener('resize', resizeWalkCanvas);
 }
 
 /* ============================================================
@@ -646,7 +1103,14 @@ function init() {
     render();
   });
 
+  // 산책길
+  resizeWalkCanvas();
+  bindWalkControls();
+
   render();
+
+  walkStart = performance.now();
+  requestAnimationFrame(walkLoop);
 }
 
 init();

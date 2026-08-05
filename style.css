@@ -42,6 +42,10 @@
   --input-border: #dde6ee;
   --input-radius: 12px;
 
+  /* 산책길 */
+  --walk-height: 420px;
+  --walk-radius: 24px;
+
   /* 레이아웃 */
   --page-max: 1080px;
   --page-pad: 24px;
@@ -129,6 +133,78 @@ body {
   margin: 8px 0 0;
   font-size: 0.95rem;
   color: rgba(255, 255, 255, 0.88);
+}
+
+/* ============================================================
+   기억의 산책길
+   ============================================================ */
+.walk {
+  position: relative;
+  z-index: 1;
+  max-width: var(--page-max);
+  margin: 0 auto 20px;
+  padding: 0 var(--page-pad);
+}
+
+.walk__canvas {
+  display: block;
+  width: 100%;
+  height: var(--walk-height);
+  border-radius: var(--walk-radius);
+  box-shadow: var(--card-shadow);
+  cursor: grab;
+  touch-action: none;
+}
+
+.walk__canvas:active {
+  cursor: grabbing;
+}
+
+/* 캔버스 위에 겹쳐 뜨는 기록 패널 */
+.walk__info {
+  position: absolute;
+  left: calc(var(--page-pad) + 20px);
+  bottom: 76px;
+  max-width: 60%;
+  padding: 14px 18px;
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: 16px;
+  box-shadow: 0 6px 20px rgba(23, 63, 95, 0.18);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 0.25s, transform 0.25s;
+}
+
+.walk__info--on {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.walk__info strong {
+  display: block;
+  font-size: 1rem;
+}
+
+.walk__info span {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.85rem;
+  color: var(--text-soft);
+}
+
+.walk__controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 0 4px;
+}
+
+.walk__hint {
+  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.9);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.2);
 }
 
 /* ============================================================
