@@ -235,6 +235,7 @@ function createCard(activity) {
 
   const card = document.createElement('article');
   card.className = 'card';
+  card.dataset.id = activity.id; // 산책길에서 연을 눌렀을 때 찾아온다
   card.style.setProperty('--card-hue', hue);
 
   const meta = [activity.place, `${activity.memberCount}명이 함께함`]
@@ -367,6 +368,7 @@ function renderWeekSelector() {
   weeks.forEach((week) => {
     const row = document.createElement('div');
     row.className = 'week';
+    row.dataset.week = week.key; // 산책길에서 나무를 눌렀을 때 찾아온다
     row.innerHTML = `
       <div class="week__info">
         <strong class="week__label"></strong>
@@ -671,6 +673,7 @@ function render() {
 const walkCanvas = document.getElementById('walkCanvas');
 const walkCtx = walkCanvas.getContext('2d');
 const walkInfo = document.getElementById('walkInfo');
+const walkTip = document.getElementById('walkTip');
 const turnButton = document.getElementById('turnButton');
 
 let trees = [];
@@ -679,6 +682,9 @@ let targetZ = 0;
 let facing = 1;        // 1 = 과거 쪽을 봄, -1 = 지나온 쪽을 봄
 let turning = 0;       // 0이 아니면 돌아보는 중 (0~1)
 let walkStart = performance.now();
+
+// 그리면서 클릭 판정 영역을 기록해 둔다. 매 프레임 새로 채운다
+let hitZones = [];
 
 // 캔버스를 화면 크기에 맞춘다. 선명하게 보이도록 픽셀 비율을 반영한다
 function resizeWalkCanvas() {
@@ -833,6 +839,15 @@ function drawTree(ctx, tree) {
     ctx.fill();
   }
 
+  // 잎 뭉치를 클릭하면 그 주로 간다
+  hitZones.push({
+    kind: 'tree',
+    x: top.x,
+    y: top.y - leafRadius * 0.3,
+    radius: leafRadius * 1.1,
+    weekKey: tree.week.key
+  });
+
   return { top, root, leafRadius };
 }
 
@@ -896,14 +911,18 @@ function drawKites(ctx, tree, treeParts, time) {
       return;
     }
 
-    drawKite(
-      ctx,
-      spot.x,
-      spot.y,
-      Math.max(3, kiteSize * spot.scale),
-      hueOf(activity.title),
-      treeParts.top
-    );
+    const size = Math.max(3, kiteSize * spot.scale);
+
+    drawKite(ctx, spot.x, spot.y, size, hueOf(activity.title), treeParts.top);
+
+    // 연을 클릭하면 그 기록으로 간다
+    hitZones.push({
+      kind: 'kite',
+      x: spot.x,
+      y: spot.y,
+      radius: Math.max(14, size * 1.1),
+      activityId: activity.id
+    });
   });
 }
 
@@ -915,6 +934,7 @@ function drawWalkScene(time) {
   const height = walkCanvas.clientHeight;
 
   ctx.clearRect(0, 0, width, height);
+  hitZones = [];
 
   // 하늘
   const gradient = ctx.createLinearGradient(0, 0, 0, horizonY() + 40);
@@ -1085,6 +1105,79 @@ function applyTurnVeil(ctx, width, height) {
   ctx.fillRect(0, 0, width, height);
 }
 
+/* ---------- 클릭해서 기록으로 가기 ---------- */
+
+// 클릭 지점에 걸린 것을 찾는다. 연이 나무보다 작으므로 연을 먼저 본다
+function findHit(x, y) {
+  const kites = hitZones.filter((zone) => zone.kind === 'kite');
+  const trees_ = hitZones.filter((zone) => zone.kind === 'tree');
+
+  for (const zone of [...kites, ...trees_]) {
+    if (Math.hypot(x - zone.x, y - zone.y) <= zone.radius) {
+      return zone;
+    }
+  }
+  return null;
+}
+
+// 해당 요소로 스크롤하고 잠깐 강조한다
+function focusElement(element) {
+  if (!element) {
+    return;
+  }
+  element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  element.classList.add('is-focused');
+  setTimeout(() => element.classList.remove('is-focused'), 1800);
+}
+
+// 연 위에 마우스를 올리면 그 기록을 쪽지로 보여준다
+function updateWalkTip(x, y) {
+  const hit = findHit(x, y);
+
+  if (!hit || hit.kind !== 'kite') {
+    walkTip.classList.remove('walk__tip--on');
+    walkCanvas.style.cursor = hit ? 'pointer' : 'grab';
+    return;
+  }
+
+  const activity = activities.find((item) => item.id === hit.activityId);
+  if (!activity) {
+    walkTip.classList.remove('walk__tip--on');
+    return;
+  }
+
+  const meta = [activity.place, `${activity.memberCount}명이 함께함`].filter(Boolean).join(' · ');
+
+  walkTip.innerHTML = '<strong></strong><span></span>';
+  walkTip.querySelector('strong').textContent = activity.title;
+  walkTip.querySelector('span').textContent = `${formatDate(activity.date)}${meta ? ` · ${meta}` : ''}`;
+  walkTip.style.left = `${hit.x}px`;
+  walkTip.style.top = `${hit.y - hit.radius}px`;
+  walkTip.classList.add('walk__tip--on');
+  walkCanvas.style.cursor = 'pointer';
+}
+
+// 연을 누르면 그 기록으로, 나무를 누르면 그 주의 영상으로 내려간다
+function handleWalkClick(x, y) {
+  const hit = findHit(x, y);
+  if (!hit) {
+    return;
+  }
+
+  if (hit.kind === 'kite') {
+    // 검색 중이라 그 카드가 안 보일 수 있으니 검색을 먼저 푼다
+    if (searchKeyword.trim() !== '') {
+      searchInput.value = '';
+      searchKeyword = '';
+      render();
+    }
+    focusElement(timeline.querySelector(`[data-id="${hit.activityId}"]`));
+    return;
+  }
+
+  focusElement(weekSelector.querySelector(`[data-week="${hit.weekKey}"]`));
+}
+
 /* ---------- 조작 연결 ---------- */
 
 function bindWalkControls() {
@@ -1095,23 +1188,41 @@ function bindWalkControls() {
 
   let dragging = false;
   let lastX = 0;
+  let moved = 0;
 
   walkCanvas.addEventListener('pointerdown', (event) => {
     dragging = true;
     lastX = event.clientX;
+    moved = 0;
     walkCanvas.setPointerCapture(event.pointerId);
   });
 
   walkCanvas.addEventListener('pointermove', (event) => {
+    const box = walkCanvas.getBoundingClientRect();
+
     if (!dragging) {
+      updateWalkTip(event.clientX - box.left, event.clientY - box.top);
       return;
     }
+
+    walkTip.classList.remove('walk__tip--on');
+    moved += Math.abs(lastX - event.clientX);
     walkBy((lastX - event.clientX) * 2.4);
     lastX = event.clientX;
   });
 
-  walkCanvas.addEventListener('pointerup', () => {
+  walkCanvas.addEventListener('pointerleave', () => {
+    walkTip.classList.remove('walk__tip--on');
+  });
+
+  walkCanvas.addEventListener('pointerup', (event) => {
     dragging = false;
+
+    // 끌지 않고 그 자리에서 눌렀다 뗐으면 클릭으로 본다
+    if (moved < 6) {
+      const box = walkCanvas.getBoundingClientRect();
+      handleWalkClick(event.clientX - box.left, event.clientY - box.top);
+    }
   });
 
   window.addEventListener('keydown', (event) => {
