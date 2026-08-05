@@ -143,6 +143,36 @@ python -m http.server 8000
 | 외부 라이브러리 | **없음** (JS 라이브러리 0개)                              |
 | 웹폰트 | Pretendard (CDN). 받지 못하면 `system-ui` 로 폴백되며 레이아웃은 그대로 유지됩니다 |
 
+## 이미지·영상 제공자 교체
+
+리캡의 활동 이미지와 영상 생성은 `app.js` 위쪽의 provider 두 줄로 교체할 수 있습니다. 기본값은 기존 동작과 같은 canvas 하늘과 브라우저 `MediaRecorder`입니다.
+
+```js
+const imageProvider = imageProviders.canvas;   // canvas | local | api
+const videoProvider = videoProviders.browser;  // browser | api
+```
+
+### 활동 이미지 provider
+
+`imageFor(activity)`는 활동 객체를 받고 `data:` 이미지 URL 또는 `null`을 반환하는 비동기 함수입니다. `null`이거나 이미지 생성·로딩에 실패하면 기존 `drawScene()` 하늘로 조용히 대체되어 리캡 영상은 계속 만들어집니다.
+
+- `imageProviders.canvas`: 항상 `null`을 반환하는 기본값
+- `imageProviders.local`: `http://127.0.0.1:7860/sdapi/v1/txt2img`로 활동 내용과 1280×720 출력 설정을 보내는 Stable Diffusion WebUI(A1111) 참고 구현
+- `imageProviders.api`: `https://api.example.com/v1/activity-images`로 활동 객체와 출력 설정을 보내는 외부 API 참고 구현
+
+> **이미지는 반드시 `data:` URL이어야 합니다.** 일반 `https://` 이미지를 canvas에 직접 그리면 canvas가 오염(tainted)되어 `captureStream()`이 `SecurityError`로 막힐 수 있습니다. 외부 API가 URL만 반환한다면 provider 안에서 `fetch` → `blob` → `FileReader.readAsDataURL` 순서로 변환해야 하며, 이미지 서버도 CORS를 허용해야 합니다.
+
+이미지는 녹화를 시작하기 전에 활동별로 미리 받아 `activity.id` 기준으로 캐시합니다. 녹화 프레임에서는 네트워크를 호출하지 않고 준비된 이미지만 cover 방식으로 그린 뒤, 활동의 하늘색과 아래쪽 어두운 그라데이션을 덮어 기존 글자 구성을 유지합니다.
+
+### 영상 provider
+
+`render(week, onProgress)`는 주차 객체를 받고 진행 상황을 `onProgress({ progress, secondsLeft })`로 알린 뒤 완성된 WebM `Blob`을 반환하는 비동기 함수입니다.
+
+- `videoProviders.browser`: `canvas.captureStream()`과 `MediaRecorder`로 실시간 녹화하는 기본값. 백그라운드 탭에서도 영상이 잘리지 않도록 그리기 루프는 `setInterval`을 유지합니다
+- `videoProviders.api`: `https://api.example.com/v1/weekly-recaps`로 주차·활동·출력 설정을 보내고 WebM 바이너리를 받는 외부 API 참고 구현
+
+provider는 교체 지점일 뿐 기본 설정에서는 어떤 로컬 서버나 외부 API도 호출하지 않습니다.
+
 ## 파일 구조
 
 ```
