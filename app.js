@@ -39,6 +39,7 @@ const memoInput = document.getElementById('memoInput');
 const formError = document.getElementById('formError');
 const countLabel = document.getElementById('countLabel');
 const timeline = document.getElementById('timeline');
+const searchInput = document.getElementById('searchInput');
 
 /* ============================================================
    저장소
@@ -154,9 +155,19 @@ function hueOf(title) {
    조회
    ============================================================ */
 
-// 화면에 보여줄 활동을 최신순으로 돌려준다
+// 검색어를 적용하고 최신순으로 정렬해 돌려준다
 function getFilteredActivities() {
-  return activities.slice().sort((a, b) => b.date.localeCompare(a.date));
+  const keyword = searchKeyword.trim().toLowerCase();
+
+  return activities
+    .filter((activity) => {
+      if (keyword === '') {
+        return true;
+      }
+      const haystack = `${activity.title} ${activity.place}`.toLowerCase();
+      return haystack.includes(keyword);
+    })
+    .sort((a, b) => b.date.localeCompare(a.date));
 }
 
 /* ============================================================
@@ -229,7 +240,10 @@ function renderList() {
   if (list.length === 0) {
     const empty = document.createElement('p');
     empty.className = 'empty';
-    empty.textContent = '아직 기록된 날이 없어요.\n첫 번째 이야기를 남겨보세요.';
+    // 아직 아무것도 없는 것과 검색해서 안 나온 것은 다른 상황이다
+    empty.textContent = searchKeyword.trim() === ''
+      ? '아직 기록된 날이 없어요.\n첫 번째 이야기를 남겨보세요.'
+      : '그런 날은 아직 없네요.';
     timeline.appendChild(empty);
     return;
   }
@@ -254,6 +268,12 @@ function init() {
   dateInput.max = todayString();
 
   form.addEventListener('submit', handleSubmit);
+
+  searchInput.addEventListener('input', () => {
+    searchKeyword = searchInput.value;
+    render();
+  });
+
   render();
 }
 
