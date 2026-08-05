@@ -167,7 +167,15 @@ const videoProviders = {
       const scenes = buildScenes(week);
       const totalSeconds = scenes.reduce((sum, scene) => sum + scene.seconds, 0);
       const stream = recapCanvas.captureStream(THEME.video.fps);
-      const recorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+      let recorder;
+
+      try {
+        recorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+      } catch (error) {
+        stream.getTracks().forEach((track) => track.stop());
+        throw error;
+      }
+
       const chunks = [];
 
       return new Promise((resolve, reject) => {
@@ -184,6 +192,9 @@ const videoProviders = {
           }
           settled = true;
           clearInterval(timer);
+          if (recorder.state !== 'inactive') {
+            recorder.stop();
+          }
           stopStream();
           reject(error);
         };
@@ -208,15 +219,16 @@ const videoProviders = {
           fail(event.error || new Error('브라우저 영상 녹화에 실패했습니다.'));
         }, { once: true });
 
+        let startedAt;
+
         try {
           recorder.start();
+          startedAt = performance.now();
+          onProgress({ progress: 0, secondsLeft: Math.ceil(totalSeconds) });
         } catch (error) {
           fail(error);
           return;
         }
-
-        const startedAt = performance.now();
-        onProgress({ progress: 0, secondsLeft: Math.ceil(totalSeconds) });
 
         // 경과 시간에 맞는 장면을 계속 그린다. 그리는 화면이 곧 녹화되는 화면이다.
         // requestAnimationFrame 은 탭이 뒤로 가면 아예 멈춰 영상이 중간에 끊긴다.
