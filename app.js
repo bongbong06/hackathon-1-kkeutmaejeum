@@ -81,11 +81,43 @@ function readForm() {
   };
 }
 
+// 오늘 날짜를 "YYYY-MM-DD" 로 돌려준다
+function todayString() {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${now.getFullYear()}-${month}-${day}`;
+}
+
+// 입력값을 검사해 첫 번째 실패 사유를 돌려준다
+function validateActivity(input) {
+  if (input.title === '') {
+    return { ok: false, message: '활동명을 입력해 주세요.', field: titleInput };
+  }
+  if (input.date === '') {
+    return { ok: false, message: '날짜를 골라 주세요.', field: dateInput };
+  }
+  if (input.date > todayString()) {
+    return { ok: false, message: '미래 날짜는 입력할 수 없습니다.', field: dateInput };
+  }
+  if (!Number.isInteger(input.memberCount) || input.memberCount < 1) {
+    return { ok: false, message: '참여 인원은 1명 이상의 정수여야 합니다.', field: memberCountInput };
+  }
+  return { ok: true };
+}
+
 // 폼 제출을 받아 활동을 추가한다
 function handleSubmit(event) {
   event.preventDefault();
 
   const input = readForm();
+  const result = validateActivity(input);
+  if (!result.ok) {
+    formError.textContent = result.message;
+    result.field.focus();
+    return;
+  }
+
   activities.push({
     id: createId(),
     ...input,
@@ -193,6 +225,10 @@ function render() {
    ============================================================ */
 function init() {
   activities = loadActivities();
+
+  // 달력에서 미래 날짜를 아예 고를 수 없게 한다 (검증은 제출할 때 한 번 더 한다)
+  dateInput.max = todayString();
+
   form.addEventListener('submit', handleSubmit);
   render();
 }
