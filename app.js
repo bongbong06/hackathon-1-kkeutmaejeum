@@ -159,16 +159,21 @@ function handleSubmit(event) {
     return;
   }
 
-  activities.push({
+  const activity = {
     id: createId(),
     ...input,
     createdAt: new Date().toISOString()
-  });
+  };
+
+  activities.push(activity);
 
   saveActivities();
   form.reset();
   formError.textContent = '';
   render();
+
+  // 기록한 하루는 연이 되어 하늘로 떠오른다
+  launchKite(activity);
 }
 
 /* ============================================================
@@ -946,6 +951,38 @@ function drawWalkScene(time) {
   applyTurnVeil(ctx, width, height);
 }
 
+/* ---------- 새로 기록한 활동은 연이 되어 날아오른다 ---------- */
+
+let launching = null; // { hue, startedAt }
+
+function launchKite(activity) {
+  launching = { hue: hueOf(activity.title), startedAt: performance.now() };
+}
+
+// 화면 아래에서 하늘로 떠오르는 연 하나를 그린다 (약 2초)
+function drawLaunchingKite(ctx, width, height) {
+  if (!launching) {
+    return;
+  }
+
+  const t = (performance.now() - launching.startedAt) / 2000;
+  if (t >= 1) {
+    launching = null;
+    return;
+  }
+
+  // 처음엔 빠르게, 갈수록 느리게 떠오른다
+  const rise = 1 - Math.pow(1 - t, 3);
+  const x = width * 0.5 + Math.sin(t * 6) * 40;
+  const y = height * 1.05 - rise * height * 0.92;
+  const size = 30 * (1 - rise * 0.45);
+
+  ctx.save();
+  ctx.globalAlpha = t > 0.8 ? (1 - t) / 0.2 : 1;
+  drawKite(ctx, x, y, size, launching.hue, { x: width * 0.5, y: height + 40 });
+  ctx.restore();
+}
+
 function walkLoop() {
   const time = (performance.now() - walkStart) / 1000;
 
@@ -953,6 +990,7 @@ function walkLoop() {
   cameraZ += (targetZ - cameraZ) * 0.12;
 
   drawWalkScene(time);
+  drawLaunchingKite(walkCtx, walkCanvas.clientWidth, walkCanvas.clientHeight);
   updateWalkInfo();
   requestAnimationFrame(walkLoop);
 }
@@ -1003,6 +1041,11 @@ function updateWalkInfo() {
 
 /* ---------- 돌아보기 ---------- */
 
+// 버튼 문구는 지금 어느 쪽을 보고 있는지에서 유도한다
+function updateTurnLabel() {
+  turnButton.textContent = facing === 1 ? '지나온 길 돌아보기' : '앞을 다시 보기';
+}
+
 // 카메라를 180도 돌린다. 돌아가는 순간만 하늘색 막으로 가려 회전처럼 보이게 한다
 function toggleFacing() {
   if (turning > 0) {
@@ -1020,7 +1063,7 @@ function toggleFacing() {
     if (!flipped && t >= 0.5) {
       facing *= -1;
       flipped = true;
-      turnButton.textContent = facing === 1 ? '지나온 길 돌아보기' : '앞을 다시 보기';
+      updateTurnLabel();
     }
 
     if (t >= 1) {
@@ -1106,6 +1149,7 @@ function init() {
   // 산책길
   resizeWalkCanvas();
   bindWalkControls();
+  updateTurnLabel();
 
   render();
 
