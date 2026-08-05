@@ -188,13 +188,37 @@ function createCard(activity) {
     <h3 class="card__title"></h3>
     <p class="card__meta"></p>
     <p class="card__memo"></p>
+    <button type="button" class="card__remove" title="이 기록 지우기">×</button>
+    <div class="card__confirm">
+      <span>이 날의 기록을 지울까요?</span>
+      <button type="button" class="button button--danger button--small js-confirm">지우기</button>
+      <button type="button" class="button button--ghost button--small js-cancel">그대로 두기</button>
+    </div>
   `;
   card.querySelector('.card__date').textContent = formatDate(activity.date);
   card.querySelector('.card__title').textContent = activity.title;
   card.querySelector('.card__meta').textContent = meta;
   card.querySelector('.card__memo').textContent = activity.memo;
 
+  // 삭제는 카드 안에서 한 번 더 확인받는다 (브라우저 confirm 창을 쓰지 않는다)
+  card.querySelector('.card__remove').addEventListener('click', () => {
+    card.classList.add('card--confirming');
+  });
+  card.querySelector('.js-cancel').addEventListener('click', () => {
+    card.classList.remove('card--confirming');
+  });
+  card.querySelector('.js-confirm').addEventListener('click', () => {
+    handleDelete(activity.id);
+  });
+
   return card;
+}
+
+// 활동을 삭제한다. 확인 절차는 카드 쪽에서 이미 거쳤다
+function handleDelete(id) {
+  activities = activities.filter((activity) => activity.id !== id);
+  saveActivities();
+  render();
 }
 
 // 타임라인을 그린다

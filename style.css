@@ -399,3 +399,52 @@ body {
 .card__meta:empty {
   display: none;
 }
+
+/* 카드 안의 삭제 버튼과 인라인 확인 */
+.card__remove {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 26px;
+  height: 26px;
+  font-size: 1.1rem;
+  line-height: 1;
+  color: var(--text-muted);
+  background: #f2f6f9;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.card__remove:hover {
+  color: #fff;
+  background: var(--danger);
+}
+
+.card__confirm {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #eef2f6;
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--text-soft);
+}
+
+.card--confirming .card__confirm {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.card--confirming .card__remove {
+  display: none;
+}
+
+.button--small {
+  padding: 6px 12px;
+  font-size: 0.82rem;
+  border-radius: 10px;
+}
