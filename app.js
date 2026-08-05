@@ -150,6 +150,132 @@ const imageProviders = {
 
 const imageProvider = imageProviders.canvas; // 이미지 제공자 교체 지점
 
+/* ============================================================
+   영상 제공자
+   그 주의 리캡 영상을 만들고 Blob을 돌려준다.
+   onProgress({ progress, secondsLeft }) 로 진행 상황을 알린다.
+   ============================================================ */
+const videoProviders = {
+  // 기본값. 브라우저에서 canvas를 실시간 녹화한다 (지금까지의 방식)
+  browser: {
+    async render(week, onProgress) {
+      if (!canRecord()) {
+        throw new Error('이 브라우저는 영상 녹화를 지원하지 않습니다.');
+      }
+
+      const ctx = recapCanvas.getContext('2d');
+      const scenes = buildScenes(week);
+      const totalSeconds = scenes.reduce((sum, scene) => sum + scene.seconds, 0);
+      const stream = recapCanvas.captureStream(THEME.video.fps);
+      const recorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+      const chunks = [];
+
+      return new Promise((resolve, reject) => {
+        let timer;
+        let settled = false;
+
+        const stopStream = () => {
+          stream.getTracks().forEach((track) => track.stop());
+        };
+
+        const fail = (error) => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          clearInterval(timer);
+          stopStream();
+          reject(error);
+        };
+
+        recorder.addEventListener('dataavailable', (event) => {
+          if (event.data.size > 0) {
+            chunks.push(event.data);
+          }
+        });
+
+        recorder.addEventListener('stop', () => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          clearInterval(timer);
+          stopStream();
+          resolve(new Blob(chunks, { type: 'video/webm' }));
+        }, { once: true });
+
+        recorder.addEventListener('error', (event) => {
+          fail(event.error || new Error('브라우저 영상 녹화에 실패했습니다.'));
+        }, { once: true });
+
+        try {
+          recorder.start();
+        } catch (error) {
+          fail(error);
+          return;
+        }
+
+        const startedAt = performance.now();
+        onProgress({ progress: 0, secondsLeft: Math.ceil(totalSeconds) });
+
+        // 경과 시간에 맞는 장면을 계속 그린다. 그리는 화면이 곧 녹화되는 화면이다.
+        // requestAnimationFrame 은 탭이 뒤로 가면 아예 멈춰 영상이 중간에 끊긴다.
+        // setInterval 은 느려질 뿐 계속 돌기 때문에 반드시 이쪽을 유지한다.
+        timer = setInterval(() => {
+          try {
+            const elapsed = (performance.now() - startedAt) / 1000;
+
+            if (!drawAtTime(ctx, scenes, elapsed)) {
+              clearInterval(timer);
+              recorder.stop();
+              return;
+            }
+
+            onProgress({
+              progress: Math.min(elapsed / totalSeconds, 1),
+              secondsLeft: Math.max(0, Math.ceil(totalSeconds - elapsed))
+            });
+          } catch (error) {
+            fail(error);
+          }
+        }, 1000 / THEME.video.fps);
+      });
+    }
+  },
+
+  // 외부 영상 생성 API 참고 구현
+  api: {
+    async render(week, onProgress) {
+      onProgress({ progress: 0, secondsLeft: null });
+
+      // POST https://api.example.com/v1/weekly-recaps 에 주차와 활동 배열, 출력 설정을 보낸다.
+      // 응답 본문은 완성된 WebM 바이너리여야 한다. 실제 주소와 인증 방식은 서비스에 맞게 바꾼다.
+      const response = await fetch('https://api.example.com/v1/weekly-recaps', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          week,
+          output: {
+            width: THEME.video.width,
+            height: THEME.video.height,
+            fps: THEME.video.fps,
+            format: 'webm'
+          }
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`외부 영상 생성 실패: ${response.status}`);
+      }
+
+      onProgress({ progress: 1, secondsLeft: 0 });
+      return response.blob(); // 반환 규약: 완성된 리캡 영상 Blob
+    }
+  }
+};
+
+const videoProvider = videoProviders.browser; // 영상 제공자 교체 지점
+
 // Blob을 canvas에서 안전하게 쓸 수 있는 data: URL로 바꾼다
 function blobToDataUrl(blob) {
   return new Promise((resolve, reject) => {
@@ -765,64 +891,51 @@ function downloadRecap(blob, week) {
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
-// 주간 리캡 영상을 만든다. canvas를 실시간으로 그리면서 그 화면을 그대로 녹화한다
+// 주간 리캡 영상의 준비, 진행률, 다운로드를 관리하고 실제 생성은 제공자에게 맡긴다
 async function createWeeklyRecap(week) {
   if (isRecording) {
     return;
   }
 
-  await preloadImages(week);
-
-  const ctx = recapCanvas.getContext('2d');
-  const scenes = buildScenes(week);
-  const totalSeconds = scenes.reduce((sum, scene) => sum + scene.seconds, 0);
-
-  recapCanvas.style.display = 'block';
-  drawAtTime(ctx, scenes, 0.5);
-
-  if (!canRecord()) {
-    recapStatus.textContent = '이 브라우저는 영상 저장을 지원하지 않아 미리보기만 보여드려요.';
-    return;
-  }
-
-  const stream = recapCanvas.captureStream(THEME.video.fps);
-  const recorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
-  const chunks = [];
-
-  recorder.addEventListener('dataavailable', (event) => {
-    if (event.data.size > 0) {
-      chunks.push(event.data);
-    }
-  });
-
-  recorder.addEventListener('stop', () => {
-    isRecording = false;
-    setRecapButtonsDisabled(false);
-    downloadRecap(new Blob(chunks, { type: 'video/webm' }), week);
-    recapStatus.textContent = `${week.label} 영상을 저장했어요. (${Math.round(totalSeconds)}초)`;
-  });
-
   isRecording = true;
   setRecapButtonsDisabled(true);
-  recorder.start();
 
-  const startedAt = performance.now();
+  try {
+    recapStatus.textContent = `${week.label} 활동 이미지를 준비하는 중…`;
+    await preloadImages(week);
 
-  // 경과 시간에 맞는 장면을 계속 그린다. 그리는 화면이 곧 녹화되는 화면이다.
-  // requestAnimationFrame 은 탭이 뒤로 가면 아예 멈춰 영상이 중간에 끊긴다.
-  // setInterval 은 느려질 뿐 계속 돌기 때문에 이쪽을 쓴다.
-  const timer = setInterval(() => {
-    const elapsed = (performance.now() - startedAt) / 1000;
+    const ctx = recapCanvas.getContext('2d');
+    const scenes = buildScenes(week);
+    const totalSeconds = scenes.reduce((sum, scene) => sum + scene.seconds, 0);
 
-    if (!drawAtTime(ctx, scenes, elapsed)) {
-      clearInterval(timer);
-      recorder.stop();
+    recapCanvas.style.display = 'block';
+    drawAtTime(ctx, scenes, 0.5);
+
+    // MediaRecorder 지원 여부는 기본 브라우저 제공자를 쓸 때만 영상 생성을 막는다.
+    if (videoProvider === videoProviders.browser && !canRecord()) {
+      recapStatus.textContent = '이 브라우저는 영상 저장을 지원하지 않아 미리보기만 보여드려요.';
       return;
     }
 
-    const left = Math.max(0, Math.ceil(totalSeconds - elapsed));
-    recapStatus.textContent = `${week.label} 영상을 만드는 중… ${left}초 남았어요`;
-  }, 1000 / THEME.video.fps);
+    const blob = await videoProvider.render(week, ({ progress, secondsLeft }) => {
+      const progressText = Number.isFinite(secondsLeft)
+        ? `${secondsLeft}초 남았어요`
+        : `${Math.round(progress * 100)}%`;
+      recapStatus.textContent = `${week.label} 영상을 만드는 중… ${progressText}`;
+    });
+
+    if (!(blob instanceof Blob) || blob.size === 0) {
+      throw new Error('영상 제공자가 빈 결과를 반환했습니다.');
+    }
+
+    downloadRecap(blob, week);
+    recapStatus.textContent = `${week.label} 영상을 저장했어요. (${Math.round(totalSeconds)}초)`;
+  } catch (error) {
+    recapStatus.textContent = `${week.label} 영상을 만들지 못했어요. 잠시 후 다시 시도해 주세요.`;
+  } finally {
+    isRecording = false;
+    setRecapButtonsDisabled(false);
+  }
 }
 
 // 녹화 중에는 다른 주차 버튼을 눌러도 겹치지 않게 막는다
