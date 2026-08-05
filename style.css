@@ -521,4 +521,20 @@ body {
   .card__confirm span {
     flex: 1 0 100%;
   }
+
+  /* 주차 행은 좁은 화면에서 위아래로 쌓는다 */
+  .week {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .week__info {
+    justify-content: space-between;
+  }
+}
+
+/* 버튼 글자는 어느 폭에서도 줄바꿈하지 않는다 */
+.button {
+  white-space: nowrap;
 }
