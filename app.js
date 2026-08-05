@@ -38,6 +38,7 @@ const STORAGE_KEY = 'activities';
 
 let activities = [];
 let searchKeyword = '';
+let isRecording = false;
 
 /* ============================================================
    화면 요소
@@ -535,14 +536,90 @@ function drawAtTime(ctx, scenes, elapsed) {
   return false; // 영상이 끝났다
 }
 
-// 주간 리캡을 만든다 (지금은 미리보기까지, 녹화는 9단계)
+// 이 브라우저가 영상 녹화를 지원하는지 본다
+function canRecord() {
+  return typeof MediaRecorder !== 'undefined'
+    && typeof HTMLCanvasElement.prototype.captureStream === 'function';
+}
+
+// 만들어진 영상을 파일로 내려받는다
+function downloadRecap(blob, week) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `recap-${week.key}.webm`;
+
+  // 링크가 문서 안에 있어야 하고, 다운로드가 시작될 틈을 준 뒤에 URL을 버려야 한다.
+  // 곧바로 revoke 하면 파일이 저장되지 않고 사라진다.
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+// 주간 리캡 영상을 만든다. canvas를 실시간으로 그리면서 그 화면을 그대로 녹화한다
 function createWeeklyRecap(week) {
+  if (isRecording) {
+    return;
+  }
+
   const ctx = recapCanvas.getContext('2d');
   const scenes = buildScenes(week);
+  const totalSeconds = scenes.reduce((sum, scene) => sum + scene.seconds, 0);
 
   recapCanvas.style.display = 'block';
-  drawAtTime(ctx, scenes, 1.5); // 표지 한가운데를 미리 보여준다
-  recapStatus.textContent = `${week.label} · 미리보기`;
+  drawAtTime(ctx, scenes, 0.5);
+
+  if (!canRecord()) {
+    recapStatus.textContent = '이 브라우저는 영상 저장을 지원하지 않아 미리보기만 보여드려요.';
+    return;
+  }
+
+  const stream = recapCanvas.captureStream(THEME.video.fps);
+  const recorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+  const chunks = [];
+
+  recorder.addEventListener('dataavailable', (event) => {
+    if (event.data.size > 0) {
+      chunks.push(event.data);
+    }
+  });
+
+  recorder.addEventListener('stop', () => {
+    isRecording = false;
+    setRecapButtonsDisabled(false);
+    downloadRecap(new Blob(chunks, { type: 'video/webm' }), week);
+    recapStatus.textContent = `${week.label} 영상을 저장했어요. (${Math.round(totalSeconds)}초)`;
+  });
+
+  isRecording = true;
+  setRecapButtonsDisabled(true);
+  recorder.start();
+
+  const startedAt = performance.now();
+
+  // 경과 시간에 맞는 장면을 계속 그린다. 그리는 화면이 곧 녹화되는 화면이다.
+  // requestAnimationFrame 은 탭이 뒤로 가면 아예 멈춰 영상이 중간에 끊긴다.
+  // setInterval 은 느려질 뿐 계속 돌기 때문에 이쪽을 쓴다.
+  const timer = setInterval(() => {
+    const elapsed = (performance.now() - startedAt) / 1000;
+
+    if (!drawAtTime(ctx, scenes, elapsed)) {
+      clearInterval(timer);
+      recorder.stop();
+      return;
+    }
+
+    const left = Math.max(0, Math.ceil(totalSeconds - elapsed));
+    recapStatus.textContent = `${week.label} 영상을 만드는 중… ${left}초 남았어요`;
+  }, 1000 / THEME.video.fps);
+}
+
+// 녹화 중에는 다른 주차 버튼을 눌러도 겹치지 않게 막는다
+function setRecapButtonsDisabled(disabled) {
+  weekSelector.querySelectorAll('.js-recap').forEach((button) => {
+    button.disabled = disabled;
+  });
 }
 
 // 화면 전체를 다시 그린다. 데이터가 바뀌면 항상 이 함수만 부른다
